@@ -1,6 +1,6 @@
 PACKER_BINARY ?= packer
 PACKER_VARIABLES := ami_name binary_bucket_name kubernetes_version kubernetes_build_date docker_version cni_version cni_plugin_version source_ami_id arch instance_type
-AWS_DEFAULT_REGION ?= us-west-2
+AWS_DEFAULT_REGION ?= eu-west-3
 
 K8S_VERSION_PARTS := $(subst ., ,$(kubernetes_version))
 K8S_VERSION_MINOR := $(word 1,${K8S_VERSION_PARTS}).$(word 2,${K8S_VERSION_PARTS})
@@ -10,7 +10,7 @@ arch ?= x86_64
 ifeq ($(arch), arm64)
 instance_type ?= a1.large
 else
-instance_type ?= m4.large
+instance_type ?= m5a.large
 endif
 
 T_RED := \e[0;31m
