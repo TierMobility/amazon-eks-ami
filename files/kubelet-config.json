@@ -25,19 +25,12 @@
   "hairpinMode": "hairpin-veth",
   "cgroupDriver": "cgroupfs",
   "cgroupRoot": "/",
+  "eventRecordQPS": 0,
   "featureGates": {
     "RotateKubeletServerCertificate": true
   },
-  "evictionHard": {
-    "memory.available": "100Mi",
-    "nodefs.available": "10%",
-    "nodefs.inodesFree": "5%"
-  },
-  "kubeReserved": {
-    "cpu": "60m",
-    "ephemeral-storage": "1Gi",
-    "memory": "0.24Gi"
-  },
+  "protectKernelDefaults": true,
+  "readOnlyPort": 0,
   "serializeImagePulls": false,
   "serverTLSBootstrap": true
 }

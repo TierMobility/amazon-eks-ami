@@ -68,6 +68,9 @@ sudo yum install -y \
     unzip \
     wget
 
+# Remove the ec2-net-utils package, if it's installed. This package interferes with the route setup on the instance.
+if yum list installed | grep ec2-net-utils; then sudo yum remove ec2-net-utils -y -q; fi
+
 ################################################################################
 ### Time #######################################################################
 ################################################################################
@@ -227,6 +230,16 @@ ARCH="$(uname -m)"
 EOF
 sudo mv /tmp/release /etc/eks/release
 sudo chown root:root /etc/eks/*
+
+################################################################################
+### Stuff required by "protectKernelDefaults=true" #############################
+################################################################################
+
+cat <<EOF | sudo tee -a /etc/sysctl.d/99-amazon.conf
+vm.overcommit_memory=1
+kernel.panic=10
+kernel.panic_on_oops=1
+EOF
 
 ################################################################################
 ### Cleanup ####################################################################
