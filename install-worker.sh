@@ -127,6 +127,12 @@ if [[ "$INSTALL_DOCKER" == "true" ]]; then
     # Enable docker daemon to start on boot.
     sudo systemctl daemon-reload
     sudo systemctl enable docker
+
+    # have larger logfiles to allow fluentd or others to pick them up
+    # this is a race condition between a (log) bursting container and the
+    # interval fluentd lists new files in /var/log/containers (default: 60s)
+    # we merge in the value to be transparent on any new settings AWS is placing in /etc/docker/daemon.json
+    tmp=$(mktemp) && sudo jq '."log-opts"."max-size" = "250m" | ."log-opts"."max-file" = "3"' /etc/docker/daemon.json > ${tmp} && sudo mv -f ${tmp} /etc/docker/daemon.json
 fi
 
 ################################################################################
@@ -240,6 +246,42 @@ vm.overcommit_memory=1
 kernel.panic=10
 kernel.panic_on_oops=1
 EOF
+
+################################################################################
+### AWS SSM Agent ##############################################################
+################################################################################
+
+INSTALL_SSM_AGENT="${INSTALL_SSM_AGENT:-true}"
+SSM_AGENT_CW_LOG="${SSM_AGENT_CW_LOG:-false}"
+SSM_AGENT_CW_LOGGROUP="${SSM_AGENT_CW_LOGGROUP:-/ssm/agents}"
+if [[ "$INSTALL_SSM_AGENT" == "true" ]]; then
+    sudo yum install -y amazon-ssm-agent
+
+    if [[ "$SSM_AGENT_CW_LOG" == "true" ]]; then
+        # see: https://docs.aws.amazon.com/systems-manager/latest/userguide/monitoring-ssm-agent.html
+        cat <<EOT | sudo tee /etc/amazon/ssm/seelog.xml
+        <seelog type="adaptive" mininterval="2000000" maxinterval="100000000" critmsgcount="500" minlevel="info">
+            <exceptions>
+                <exception filepattern="test*" minlevel="error"/>
+            </exceptions>
+            <outputs formatid="fmtinfo">
+                <console formatid="fmtinfo"/>
+                <rollingfile type="size" filename="/var/log/amazon/ssm/amazon-ssm-agent.log" maxsize="30000000" maxrolls="5"/>
+                <filter levels="error,critical" formatid="fmterror">
+                    <rollingfile type="size" filename="/var/log/amazon/ssm/errors.log" maxsize="10000000" maxrolls="5"/>
+                </filter>
+                <custom name="cloudwatch_receiver" formatid="fmtdebug" data-log-group="$SSM_AGENT_CW_LOGGROUP"/>
+            </outputs>
+            <formats>
+                <format id="fmterror" format="%Date %Time %LEVEL [%FuncShort @ %File.%Line] %Msg%n"/>
+                <format id="fmtdebug" format="%Date %Time %LEVEL [%FuncShort @ %File.%Line] %Msg%n"/>
+                <format id="fmtinfo" format="%Date %Time %LEVEL %Msg%n"/>
+            </formats>
+        </seelog>
+EOT
+    fi
+    sudo systemctl enable amazon-ssm-agent
+fi
 
 ################################################################################
 ### Cleanup ####################################################################
