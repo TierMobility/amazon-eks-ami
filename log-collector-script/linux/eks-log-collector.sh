@@ -1,4 +1,4 @@
-#!/usr/bin/env bash 
+#!/usr/bin/env bash
 
 # Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
@@ -21,7 +21,7 @@ export LANG="C"
 export LC_ALL="C"
 
 # Global options
-readonly PROGRAM_VERSION="0.5.1"
+readonly PROGRAM_VERSION="0.5.2"
 readonly PROGRAM_SOURCE="https://github.com/awslabs/amazon-eks-ami/blob/master/log-collector-script/"
 readonly PROGRAM_NAME="$(basename "$0" .sh)"
 readonly PROGRAM_DIR="/opt/log-collector"
@@ -171,13 +171,16 @@ version_output() {
 log_parameters() {
   echo mode: "${mode}" >> "${COLLECT_DIR}"/system/script-params.txt
   echo ignore_introspection: "${ignore_introspection}" >> "${COLLECT_DIR}"/system/script-params.txt
-  echo ignore_metrics: "${ignore_metrics}" >> "${COLLECT_DIR}"/system/script-params.txt 
+  echo ignore_metrics: "${ignore_metrics}" >> "${COLLECT_DIR}"/system/script-params.txt
 }
 
 systemd_check() {
   if  command -v systemctl >/dev/null 2>&1; then
       INIT_TYPE="systemd"
-    else
+    if command -v snap >/dev/null 2>&1; then
+      INIT_TYPE="snap"
+    fi
+  else
       INIT_TYPE="other"
   fi
 }
@@ -186,8 +189,8 @@ create_directories() {
   # Make sure the directory the script lives in is there. Not an issue if
   # the EKS AMI is used, as it will have it.
   mkdir --parents "${PROGRAM_DIR}"
-  
-  # Common directors creation 
+
+  # Common directors creation
   for directory in ${COMMON_DIRECTORIES[*]}; do
     mkdir --parents "${COLLECT_DIR}"/"${directory}"
   done
@@ -294,7 +297,7 @@ get_selinux_info() {
 
 get_iptables_info() {
   try "collect iptables information"
-  
+
   iptables --wait 1 --numeric --verbose --list --table mangle > "${COLLECT_DIR}"/networking/iptables-mangle.txt
   iptables --wait 1 --numeric --verbose --list --table filter > "${COLLECT_DIR}"/networking/iptables-filter.txt
   iptables --wait 1 --numeric --verbose --list --table nat > "${COLLECT_DIR}"/networking/iptables-nat.txt
@@ -337,7 +340,7 @@ get_docker_logs() {
   try "collect Docker daemon logs"
 
   case "${INIT_TYPE}" in
-    systemd)
+    systemd|snap)
       journalctl --unit=docker --since "${DAYS_10}" > "${COLLECT_DIR}"/docker/docker.log
       ;;
     other)
@@ -360,30 +363,40 @@ get_k8s_info() {
 
   if [[ -n "${KUBECONFIG:-}" ]]; then
     command -v kubectl > /dev/null && kubectl get --kubeconfig=${KUBECONFIG} svc > "${COLLECT_DIR}"/kubelet/svc.log
-    kubectl --kubeconfig=${KUBECONFIG} config view  --output yaml > "${COLLECT_DIR}"/kubelet/kubeconfig.yaml
+    command -v kubectl > /dev/null && kubectl --kubeconfig=${KUBECONFIG} config view  --output yaml > "${COLLECT_DIR}"/kubelet/kubeconfig.yaml
 
   elif [[ -f /etc/eksctl/kubeconfig.yaml ]]; then
     KUBECONFIG="/etc/eksctl/kubeconfig.yaml"
     command -v kubectl > /dev/null && kubectl get --kubeconfig=${KUBECONFIG} svc > "${COLLECT_DIR}"/kubelet/svc.log
-    kubectl --kubeconfig=${KUBECONFIG} config view  --output yaml > "${COLLECT_DIR}"/kubelet/kubeconfig.yaml
+    command -v kubectl > /dev/null && kubectl --kubeconfig=${KUBECONFIG} config view  --output yaml > "${COLLECT_DIR}"/kubelet/kubeconfig.yaml
 
   elif [[ -f /etc/systemd/system/kubelet.service ]]; then
     KUBECONFIG=`grep kubeconfig /etc/systemd/system/kubelet.service | awk '{print $2}'`
     command -v kubectl > /dev/null && kubectl get --kubeconfig=${KUBECONFIG} svc > "${COLLECT_DIR}"/kubelet/svc.log
-    kubectl --kubeconfig=${KUBECONFIG} config view  --output yaml > "${COLLECT_DIR}"/kubelet/kubeconfig.yaml
+    command -v kubectl > /dev/null && kubectl --kubeconfig=${KUBECONFIG} config view  --output yaml > "${COLLECT_DIR}"/kubelet/kubeconfig.yaml
 
+  elif [[ -f /var/lib/kubelet/kubeconfig ]]; then
+    KUBECONFIG="/var/lib/kubelet/kubeconfig"
+    command -v kubectl > /dev/null && kubectl get --kubeconfig=${KUBECONFIG} svc > "${COLLECT_DIR}"/kubelet/svc.log
+    command -v kubectl > /dev/null && kubectl --kubeconfig=${KUBECONFIG} config view  --output yaml > "${COLLECT_DIR}"/kubelet/kubeconfig.yaml
+  
   else
     echo "======== Unable to find KUBECONFIG, IGNORING POD DATA =========" >> "${COLLECT_DIR}"/kubelet/svc.log
   fi
 
+  # Try to copy the kubeconfig file if kubectl command doesn't exist
+  [[ (! -f "${COLLECT_DIR}/kubelet/kubeconfig.yaml") && ( -n ${KUBECONFIG}) ]] && cp ${KUBECONFIG} "${COLLECT_DIR}"/kubelet/kubeconfig.yaml
+
   case "${INIT_TYPE}" in
     systemd)
       timeout 75 journalctl --unit=kubelet --since "${DAYS_10}" > "${COLLECT_DIR}"/kubelet/kubelet.log
-      timeout 75 journalctl --unit=kubeproxy --since "${DAYS_10}" > "${COLLECT_DIR}"/kubelet/kubeproxy.log
 
-      for entry in kubelet kube-proxy; do
-        systemctl cat "${entry}" > "${COLLECT_DIR}"/kubelet/"${entry}"_service.txt 2>&1
-      done
+      systemctl cat kubelet > "${COLLECT_DIR}"/kubelet/kubelet_service.txt 2>&1
+      ;;
+    snap)
+      timeout 75 snap logs kubelet-eks -n all > "${COLLECT_DIR}"/kubelet/kubelet.log
+
+      timeout 75 snap get kubelet-eks > "${COLLECT_DIR}"/kubelet/kubelet-eks_service.txt 2>&1
       ;;
     *)
       warning "The current operating system is not supported."
@@ -401,7 +414,7 @@ get_ipamd_info() {
     done
   else
     echo "Ignoring IPAM introspection stats as mentioned"| tee -a "${COLLECT_DIR}"/ipamd/ipam_introspection_ignore.txt
-   
+
   fi
 
   if [[ "${ignore_metrics}" == "false" ]]; then
@@ -418,7 +431,7 @@ get_sysctls_info() {
   try "collect sysctls information"
   # dump all sysctls
   sysctl --all >> "${COLLECT_DIR}"/sysctls/sysctl_all.txt 2>/dev/null
-  
+
   ok
 }
 
@@ -440,7 +453,7 @@ get_cni_config() {
 
     if [[ -e "/etc/cni/net.d/" ]]; then
         cp --force --recursive --dereference /etc/cni/net.d/* "${COLLECT_DIR}"/cni/
-    fi  
+    fi
 
   ok
 }
@@ -448,7 +461,7 @@ get_cni_config() {
 get_pkgtype() {
   if [[ "$(command -v rpm )" ]]; then
     PACKAGE_TYPE=rpm
-  elif [[ "$(command -v deb )" ]]; then
+  elif [[ "$(command -v dpkg )" ]]; then
     PACKAGE_TYPE=deb
   else
     PACKAGE_TYPE='unknown'
@@ -477,7 +490,7 @@ get_system_services() {
   try "collect active system services"
 
   case "${INIT_TYPE}" in
-    systemd)
+    systemd|snap)
       systemctl list-units > "${COLLECT_DIR}"/system/services.txt 2>&1
       ;;
     other)
@@ -500,7 +513,7 @@ get_system_services() {
 get_docker_info() {
   try "collect Docker daemon information"
 
-  if [[ "$(pgrep dockerd)" -ne 0 ]]; then
+  if [[ "$(pgrep -o dockerd)" -ne 0 ]]; then
     timeout 75 docker info > "${COLLECT_DIR}"/docker/docker-info.txt 2>&1 || echo -e "\tTimed out, ignoring \"docker info output \" "
     timeout 75 docker ps --all --no-trunc > "${COLLECT_DIR}"/docker/docker-ps.txt 2>&1 || echo -e "\tTimed out, ignoring \"docker ps --all --no-truc output \" "
     timeout 75 docker images > "${COLLECT_DIR}"/docker/docker-images.txt 2>&1 || echo -e "\tTimed out, ignoring \"docker images output \" "
@@ -543,7 +556,7 @@ enable_docker_debug() {
 confirm_enable_docker_debug() {
     read -r -p "${1:-Enabled Docker Debug will restart the Docker Daemon and restart all running container. Are you sure? [y/N]} " USER_INPUT
     case "$USER_INPUT" in
-        [yY][eE][sS]|[yY]) 
+        [yY][eE][sS]|[yY])
             enable_docker_debug
             ;;
         *)
