@@ -25,7 +25,7 @@ T_GREEN := \e[0;32m
 T_YELLOW := \e[0;33m
 T_RESET := \e[0m
 
-.PHONY: all
+.PHONY: 1.14
 all: 1.11 1.12 1.13 1.14
 
 .PHONY: validate
@@ -39,7 +39,7 @@ k8s: validate
 
 # Build dates and versions taken from https://docs.aws.amazon.com/eks/latest/userguide/install-kubectl.html
 
-.PHONY: 1.14
+.PHONY: 1.11
 1.11:
 	$(MAKE) k8s kubernetes_version=1.11.10 kubernetes_build_date=2019-08-14
 
