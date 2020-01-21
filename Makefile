@@ -1,16 +1,23 @@
 PACKER_BINARY ?= packer
-PACKER_VARIABLES := ami_name binary_bucket_name kubernetes_version kubernetes_build_date docker_version cni_version cni_plugin_version source_ami_id arch instance_type
+PACKER_VARIABLES := aws_region ami_name binary_bucket_name binary_bucket_region kubernetes_version kubernetes_build_date docker_version cni_version cni_plugin_version source_ami_id source_ami_owners arch instance_type
+
 AWS_DEFAULT_REGION ?= eu-central-1
 
 K8S_VERSION_PARTS := $(subst ., ,$(kubernetes_version))
 K8S_VERSION_MINOR := $(word 1,${K8S_VERSION_PARTS}).$(word 2,${K8S_VERSION_PARTS})
 
+aws_region ?= $(AWS_DEFAULT_REGION)
+binary_bucket_region ?= $(AWS_DEFAULT_REGION)
 ami_name ?= amazon-eks-node-$(K8S_VERSION_MINOR)-v$(shell date +'%Y%m%d')
 arch ?= x86_64
 ifeq ($(arch), arm64)
 instance_type ?= a1.large
 else
 instance_type ?= m5a.large
+endif
+
+ifeq ($(aws_region), cn-northwest-1)
+source_ami_owners ?= 141808717104
 endif
 
 T_RED := \e[0;31m
@@ -32,7 +39,7 @@ k8s: validate
 
 # Build dates and versions taken from https://docs.aws.amazon.com/eks/latest/userguide/install-kubectl.html
 
-.PHONY: 1.11
+.PHONY: 1.14
 1.11:
 	$(MAKE) k8s kubernetes_version=1.11.10 kubernetes_build_date=2019-08-14
 
