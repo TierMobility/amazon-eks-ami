@@ -34,7 +34,7 @@
 
     "install_ssm_agent": "true",
     "ssm_agent_cw_log": "true",
-    "ssm_agent_cw_loggroup": "/ssm/agents"
+    "ssm_agent_cw_loggroup": "/ssm/agents",
 
     "additional_yum_repos": ""
   },
