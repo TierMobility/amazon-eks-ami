@@ -13,7 +13,9 @@ jobs:
         description: "Which EKS version to build"
         default: "1.14"
         type: string
+    working_directory: ~/repo
     steps:
+      - checkout
       - aws-cli/setup:
           configure-default-region: true
           aws-region: AWS_DEFAULT_REGION
