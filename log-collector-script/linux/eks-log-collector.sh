@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-
-# Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright Amazon.com Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You may
 # not use this file except in compliance with the License. A copy of the
@@ -21,10 +20,11 @@ export LANG="C"
 export LC_ALL="C"
 
 # Global options
-readonly PROGRAM_VERSION="0.5.2"
+readonly PROGRAM_VERSION="0.6.1"
 readonly PROGRAM_SOURCE="https://github.com/awslabs/amazon-eks-ami/blob/master/log-collector-script/"
 readonly PROGRAM_NAME="$(basename "$0" .sh)"
 readonly PROGRAM_DIR="/opt/log-collector"
+readonly LOG_DIR="/var/log"
 readonly COLLECT_DIR="/tmp/${PROGRAM_NAME}"
 readonly DAYS_10=$(date -d "-10 days" '+%Y-%m-%d %H:%M')
 INSTANCE_ID=""
@@ -32,7 +32,6 @@ INIT_TYPE=""
 PACKAGE_TYPE=""
 
 # Script run defaults
-mode='collect'
 ignore_introspection='false'
 ignore_metrics='false'
 
@@ -85,13 +84,9 @@ IPAMD_DATA=(
 
 help() {
   echo ""
-  echo "USAGE: ${PROGRAM_NAME} --help [ --mode=collect|enable_debug --ignore_introspection=true|false --ignore_metrics=true|false ]"
+  echo "USAGE: ${PROGRAM_NAME} --help [ --ignore_introspection=true|false --ignore_metrics=true|false ]"
   echo ""
   echo "OPTIONS:"
-  echo "   --mode  Has two parameters  1) collect or 2) enable_debug,:"
-  echo "             collect        Gathers basic operating system, Docker daemon, and"
-  echo "                            Amazon EKS related config files and logs. This is the default mode."
-  echo "             enable_debug   Enables debug mode for the Docker daemon(Not for production use)"
   echo ""
   echo "   --ignore_introspection To ignore introspection of IPAMD; Pass this flag if DISABLE_INTROSPECTION is enabled on CNI"
   echo ""
@@ -110,9 +105,6 @@ parse_options() {
     val="$(echo "${arg}" | awk -F '=' '{print $2}')"
 
     case "${param}" in
-      mode)
-        eval "${param}"="${val}"
-        ;;
       ignore_introspection)
         eval "${param}"="${val}"
         ;;
@@ -157,7 +149,7 @@ is_root() {
 
 check_required_utils() {
   for utils in ${REQUIRED_UTILS[*]}; do
-    # if exit code of "command -v" not equal to 0, fail
+    # If exit code of "command -v" not equal to 0, fail
     if ! command -v "${utils}" >/dev/null 2>&1; then
       die "Application \"${utils}\" is missing, please install \"${utils}\" as this script requires it, and will not function without it."
     fi
@@ -169,7 +161,6 @@ version_output() {
 }
 
 log_parameters() {
-  echo mode: "${mode}" >> "${COLLECT_DIR}"/system/script-params.txt
   echo ignore_introspection: "${ignore_introspection}" >> "${COLLECT_DIR}"/system/script-params.txt
   echo ignore_metrics: "${ignore_metrics}" >> "${COLLECT_DIR}"/system/script-params.txt
 }
@@ -188,11 +179,11 @@ systemd_check() {
 create_directories() {
   # Make sure the directory the script lives in is there. Not an issue if
   # the EKS AMI is used, as it will have it.
-  mkdir --parents "${PROGRAM_DIR}"
+  mkdir -p "${PROGRAM_DIR}"
 
-  # Common directors creation
+  # Common directories creation
   for directory in ${COMMON_DIRECTORIES[*]}; do
-    mkdir --parents "${COLLECT_DIR}"/"${directory}"
+    mkdir -p "${COLLECT_DIR}"/"${directory}"
   done
 }
 
@@ -250,24 +241,17 @@ collect() {
   get_docker_logs
 }
 
-enable_debug() {
-  init
-  enable_docker_debug
-}
-
 pack() {
   try "archive gathered information"
 
-  tar --create --verbose --gzip --file "${PROGRAM_DIR}"/eks_"${INSTANCE_ID}"_"$(date --utc +%Y-%m-%d_%H%M-%Z)"_"${PROGRAM_VERSION}".tar.gz --directory="${COLLECT_DIR}" . > /dev/null 2>&1
+  tar --create --verbose --gzip --file "${LOG_DIR}"/eks_"${INSTANCE_ID}"_"$(date --utc +%Y-%m-%d_%H%M-%Z)"_"${PROGRAM_VERSION}".tar.gz --directory="${COLLECT_DIR}" . > /dev/null 2>&1
 
   ok
 }
 
 finished() {
-  if [[ "${mode}" == "collect" ]]; then
-      cleanup
-      echo -e "\n\tDone... your bundled logs are located in ${PROGRAM_DIR}/eks_${INSTANCE_ID}_$(date --utc +%Y-%m-%d_%H%M-%Z)_${PROGRAM_VERSION}.tar.gz\n"
-  fi
+  cleanup
+  echo -e "\n\tDone... your bundled logs are located in ${LOG_DIR}/eks_${INSTANCE_ID}_$(date --utc +%Y-%m-%d_%H%M-%Z)_${PROGRAM_VERSION}.tar.gz\n"
 }
 
 get_mounts_info() {
@@ -316,7 +300,21 @@ get_common_logs() {
           tail -c 10M /var/log/messages > "${COLLECT_DIR}"/var_log/messages
           continue
         fi
-      cp --force --recursive --dereference /var/log/"${entry}" "${COLLECT_DIR}"/var_log/
+        if [[ "${entry}" == "containers" ]]; then
+          cp --force --recursive /var/log/containers/aws-node* "${COLLECT_DIR}"/var_log/ 2>/dev/null
+          cp --force --recursive /var/log/containers/kube-system_cni-metrics-helper* "${COLLECT_DIR}"/var_log/ 2>/dev/null
+          cp --force --recursive /var/log/containers/coredns-* "${COLLECT_DIR}"/var_log/ 2>/dev/null
+          cp --force --recursive /var/log/containers/kube-proxy* "${COLLECT_DIR}"/var_log/ 2>/dev/null
+          continue
+        fi
+        if [[ "${entry}" == "pods" ]]; then
+          cp --force --recursive /var/log/pods/kube-system_aws-node* "${COLLECT_DIR}"/var_log/ 2>/dev/null
+          cp --force --recursive /var/log/pods/kube-system_cni-metrics-helper* "${COLLECT_DIR}"/var_log/ 2>/dev/null
+          cp --force --recursive /var/log/pods/kube-system_coredns* "${COLLECT_DIR}"/var_log/ 2>/dev/null
+          cp --force --recursive /var/log/pods/kube-system_kube-proxy* "${COLLECT_DIR}"/var_log/ 2>/dev/null
+          continue
+        fi
+      cp --force --recursive --dereference /var/log/"${entry}" "${COLLECT_DIR}"/var_log/ 2>/dev/null
     fi
   done
 
@@ -362,18 +360,18 @@ get_k8s_info() {
   try "collect kubelet information"
 
   if [[ -n "${KUBECONFIG:-}" ]]; then
-    command -v kubectl > /dev/null && kubectl get --kubeconfig=${KUBECONFIG} svc > "${COLLECT_DIR}"/kubelet/svc.log
-    command -v kubectl > /dev/null && kubectl --kubeconfig=${KUBECONFIG} config view  --output yaml > "${COLLECT_DIR}"/kubelet/kubeconfig.yaml
+    command -v kubectl > /dev/null && kubectl get --kubeconfig="${KUBECONFIG}" svc > "${COLLECT_DIR}"/kubelet/svc.log
+    command -v kubectl > /dev/null && kubectl --kubeconfig="${KUBECONFIG}" config view  --output yaml > "${COLLECT_DIR}"/kubelet/kubeconfig.yaml
 
   elif [[ -f /etc/eksctl/kubeconfig.yaml ]]; then
     KUBECONFIG="/etc/eksctl/kubeconfig.yaml"
-    command -v kubectl > /dev/null && kubectl get --kubeconfig=${KUBECONFIG} svc > "${COLLECT_DIR}"/kubelet/svc.log
-    command -v kubectl > /dev/null && kubectl --kubeconfig=${KUBECONFIG} config view  --output yaml > "${COLLECT_DIR}"/kubelet/kubeconfig.yaml
+    command -v kubectl > /dev/null && kubectl get --kubeconfig="${KUBECONFIG}" svc > "${COLLECT_DIR}"/kubelet/svc.log
+    command -v kubectl > /dev/null && kubectl --kubeconfig="${KUBECONFIG}" config view  --output yaml > "${COLLECT_DIR}"/kubelet/kubeconfig.yaml
 
   elif [[ -f /etc/systemd/system/kubelet.service ]]; then
-    KUBECONFIG=`grep kubeconfig /etc/systemd/system/kubelet.service | awk '{print $2}'`
-    command -v kubectl > /dev/null && kubectl get --kubeconfig=${KUBECONFIG} svc > "${COLLECT_DIR}"/kubelet/svc.log
-    command -v kubectl > /dev/null && kubectl --kubeconfig=${KUBECONFIG} config view  --output yaml > "${COLLECT_DIR}"/kubelet/kubeconfig.yaml
+    KUBECONFIG=$(grep kubeconfig /etc/systemd/system/kubelet.service | awk '{print $2}')
+    command -v kubectl > /dev/null && kubectl get --kubeconfig="${KUBECONFIG}" svc > "${COLLECT_DIR}"/kubelet/svc.log
+    command -v kubectl > /dev/null && kubectl --kubeconfig="${KUBECONFIG}" config view  --output yaml > "${COLLECT_DIR}"/kubelet/kubeconfig.yaml
 
   elif [[ -f /var/lib/kubelet/kubeconfig ]]; then
     KUBECONFIG="/var/lib/kubelet/kubeconfig"
@@ -414,7 +412,6 @@ get_ipamd_info() {
     done
   else
     echo "Ignoring IPAM introspection stats as mentioned"| tee -a "${COLLECT_DIR}"/ipamd/ipam_introspection_ignore.txt
-
   fi
 
   if [[ "${ignore_metrics}" == "false" ]]; then
@@ -525,59 +522,10 @@ get_docker_info() {
   ok
 }
 
-enable_docker_debug() {
-  try "enable debug mode for the Docker daemon"
-
-  case "${PACKAGE_TYPE}" in
-    rpm)
-
-      if [[ -e /etc/sysconfig/docker ]] && grep -q "^\s*OPTIONS=\"-D" /etc/sysconfig/docker
-      then
-        echo "Debug mode is already enabled."
-        ok
-      else
-        if [[ -e /etc/sysconfig/docker ]]; then
-          echo "OPTIONS=\"-D \$OPTIONS\"" >> /etc/sysconfig/docker
-
-          try "restart Docker daemon to enable debug mode"
-          service docker restart
-          ok
-        fi
-      fi
-      ;;
-    *)
-      warning "The current operating system is not supported."
-
-      ok
-      ;;
-  esac
-}
-
-confirm_enable_docker_debug() {
-    read -r -p "${1:-Enabled Docker Debug will restart the Docker Daemon and restart all running container. Are you sure? [y/N]} " USER_INPUT
-    case "$USER_INPUT" in
-        [yY][eE][sS]|[yY])
-            enable_docker_debug
-            ;;
-        *)
-            die "\"No\" was selected."
-            ;;
-    esac
-}
-
+# -----------------------------------------------------------------------------
+# Entrypoint
 parse_options "$@"
 
-case "${mode}" in
-  collect)
-    collect
-    pack
-    finished
-    ;;
-  enable_debug)
-    confirm_enable_docker_debug
-    finished
-    ;;
-  *)
-    help && exit 1
-    ;;
-esac
+collect
+pack
+finished
