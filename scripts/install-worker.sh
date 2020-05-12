@@ -48,10 +48,6 @@ fi
 ### Packages ###################################################################
 ################################################################################
 
-# patch in kernel 4.19
-# see: https://github.com/awslabs/amazon-eks-ami/issues/357
-sudo amazon-linux-extras install -y kernel-ng
-
 # Update the OS to begin with to catch up to the latest packages.
 sudo yum update -y
 
