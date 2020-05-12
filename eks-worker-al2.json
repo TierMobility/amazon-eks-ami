@@ -17,6 +17,7 @@
     "docker_version": "18.09.9ce-2.amzn2",
     "cni_version": "v0.6.0",
     "cni_plugin_version": "v0.7.5",
+    "pull_cni_from_github": "true",
 
     "source_ami_id": "",
     "source_ami_owners": "137112412989",
@@ -125,7 +126,14 @@
     {
       "type": "shell",
       "remote_folder": "{{ user `remote_folder`}}",
+      "expect_disconnect": true,
+      "script": "{{template_dir}}/scripts/upgrade_kernel.sh"
+    },
+    {
+      "type": "shell",
+      "remote_folder": "{{ user `remote_folder`}}",
       "script": "{{template_dir}}/scripts/install-worker.sh",
+      "pause_before": "90s",
       "environment_vars": [
         "KUBERNETES_VERSION={{user `kubernetes_version`}}",
         "KUBERNETES_BUILD_DATE={{user `kubernetes_build_date`}}",
@@ -134,6 +142,7 @@
         "DOCKER_VERSION={{user `docker_version`}}",
         "CNI_VERSION={{user `cni_version`}}",
         "CNI_PLUGIN_VERSION={{user `cni_plugin_version`}}",
+        "PULL_CNI_FROM_GITHUB={{user `pull_cni_from_github`}}",
         "AWS_ACCESS_KEY_ID={{user `aws_access_key_id`}}",
         "AWS_SECRET_ACCESS_KEY={{user `aws_secret_access_key`}}",
         "AWS_SESSION_TOKEN={{user `aws_session_token`}}",
@@ -160,6 +169,11 @@
     {
       "type": "manifest",
       "output": "manifest.json",
+      "strip_path": true
+    },
+    {
+      "type": "manifest",
+      "output": "{{user `ami_name`}}-manifest.json",
       "strip_path": true
     }
   ]
