@@ -48,6 +48,9 @@ fi
 ### Packages ###################################################################
 ################################################################################
 
+# Upgrade to the newest Linux kernel 5.4 (see AWS Case 6992677781 in Production account)
+sudo amazon-linux-extras install -y kernel-ng
+
 # Update the OS to begin with to catch up to the latest packages.
 sudo yum update -y
 
