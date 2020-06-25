@@ -45,3 +45,9 @@ workflows:
         filters:
             branches:
               only: master
+    - build:
+        context: global-production
+        eks: "1.16"
+        filters:
+            branches:
+              only: master
