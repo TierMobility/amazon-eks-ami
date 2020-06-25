@@ -159,8 +159,7 @@ get_resource_to_reserve_in_range() {
 # Return:
 #   memory to reserve in Mi for the kubelet
 get_memory_mebibytes_to_reserve() {
-  local instance_type=$1
-  max_num_pods=$(cat /etc/eks/eni-max-pods.txt | grep $instance_type | awk '{print $2;}')
+  local max_num_pods=$1
   memory_to_reserve=$((11 * $max_num_pods + 255))
   echo $memory_to_reserve
 }
@@ -195,9 +194,10 @@ if [ -z "$CLUSTER_NAME" ]; then
     exit  1
 fi
 
-ZONE=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
-AWS_DEFAULT_REGION=$(echo $ZONE | awk '{print substr($0, 1, length($0)-1)}')
-AWS_SERVICES_DOMAIN=$(curl -s http://169.254.169.254/2018-09-24/meta-data/services/domain)
+
+TOKEN=$(curl -X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 600" "http://169.254.169.254/latest/api/token")
+AWS_DEFAULT_REGION=$(curl -s --retry 5 -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/dynamic/instance-identity/document | jq .region -r)
+AWS_SERVICES_DOMAIN=$(curl -s --retry 5 -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/2018-09-24/meta-data/services/domain)
 
 MACHINE=$(uname -m)
 if [ "$MACHINE" == "x86_64" ]; then
@@ -280,8 +280,18 @@ INSTANCE_TYPE=$(curl -s http://169.254.169.254/latest/meta-data/instance-type)
 # Note that allocatable memory and CPU resources on worker nodes is calculated by the Kubernetes scheduler
 # with this formula when scheduling pods: Allocatable = Capacity - Reserved - Eviction Threshold.
 
+#calculate the max number of pods per instance type
+MAX_PODS_FILE="/etc/eks/eni-max-pods.txt"
+set +o pipefail
+MAX_PODS=$(cat $MAX_PODS_FILE | awk "/^$INSTANCE_TYPE/"' { print $2 }')
+set -o pipefail
+if [ -z "$MAX_PODS" ]; then
+    echo 'No entry for $INSTANCE_TYPE in $MAX_PODS_FILE'
+    exit 1
+fi
+
 # calculates the amount of each resource to reserve
-mebibytes_to_reserve=$(get_memory_mebibytes_to_reserve $INSTANCE_TYPE)
+mebibytes_to_reserve=$(get_memory_mebibytes_to_reserve $MAX_PODS)
 cpu_millicores_to_reserve=$(get_cpu_millicores_to_reserve)
 # writes kubeReserved and evictionHard to the kubelet-config using the amount of CPU and memory to be reserved
 echo "$(jq '. += {"evictionHard": {"memory.available": "100Mi", "nodefs.available": "10%", "nodefs.inodesFree": "5%"}}' $KUBELET_CONFIG)" > $KUBELET_CONFIG
@@ -289,10 +299,6 @@ echo "$(jq --arg mebibytes_to_reserve "${mebibytes_to_reserve}Mi" --arg cpu_mill
     '. += {kubeReserved: {"cpu": $cpu_millicores_to_reserve, "ephemeral-storage": "1Gi", "memory": $mebibytes_to_reserve}}' $KUBELET_CONFIG)" > $KUBELET_CONFIG
 
 if [[ "$USE_MAX_PODS" = "true" ]]; then
-    MAX_PODS_FILE="/etc/eks/eni-max-pods.txt"
-    set +o pipefail
-    MAX_PODS=$(grep ^$INSTANCE_TYPE $MAX_PODS_FILE | awk '{print $2}')
-    set -o pipefail
     if [[ -n "$MAX_PODS" ]]; then
         echo "$(jq ".maxPods=$MAX_PODS" $KUBELET_CONFIG)" > $KUBELET_CONFIG
     else

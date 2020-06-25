@@ -5,7 +5,7 @@
     "creator": "{{env `USER`}}",
     "encrypted": "false",
     "kms_key_id": "",
-    
+
     "aws_access_key_id": "{{env `AWS_ACCESS_KEY_ID`}}",
     "aws_secret_access_key": "{{env `AWS_SECRET_ACCESS_KEY`}}",
     "aws_session_token": "{{env `AWS_SESSION_TOKEN`}}",
@@ -14,7 +14,7 @@
     "binary_bucket_region": "us-west-2",
     "kubernetes_version": null,
     "kubernetes_build_date": null,
-    "docker_version": "18.09.9ce-2.amzn2",
+    "docker_version": "19.03.6ce-4.amzn2",
     "cni_version": "v0.6.0",
     "cni_plugin_version": "v0.7.5",
     "pull_cni_from_github": "true",
@@ -70,7 +70,7 @@
           "delete_on_termination": true
         }
       ],
-      "ami_block_device_mappings": [    
+      "ami_block_device_mappings": [
         {
           "device_name": "/dev/xvda",
           "volume_type": "gp2",
@@ -106,16 +106,6 @@
 
   "provisioners": [
     {
-      "type": "shell",
-      "remote_folder": "{{ user `remote_folder`}}",
-      "inline": ["mkdir -p /tmp/worker/"]
-    },
-    {
-      "type": "file",
-      "source": "{{template_dir}}/files/",
-      "destination": "/tmp/worker/"
-    },
-    {
         "type": "shell",
         "remote_folder": "{{ user `remote_folder`}}",
         "script": "{{template_dir}}/scripts/install_additional_repos.sh",
@@ -131,9 +121,19 @@
     },
     {
       "type": "shell",
+      "pause_before": "90s",
+      "remote_folder": "{{ user `remote_folder`}}",
+      "inline": ["mkdir -p /tmp/worker/"]
+    },
+    {
+      "type": "file",
+      "source": "{{template_dir}}/files/",
+      "destination": "/tmp/worker/"
+    },
+    {
+      "type": "shell",
       "remote_folder": "{{ user `remote_folder`}}",
       "script": "{{template_dir}}/scripts/install-worker.sh",
-      "pause_before": "90s",
       "environment_vars": [
         "KUBERNETES_VERSION={{user `kubernetes_version`}}",
         "KUBERNETES_BUILD_DATE={{user `kubernetes_build_date`}}",
