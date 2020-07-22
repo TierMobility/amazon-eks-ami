@@ -1,17 +1,17 @@
 version: 2.1
 
 orbs:
-  aws-cli: circleci/aws-cli@0.1.20
+  aws-cli: circleci/aws-cli@1.2.1
 
 jobs:
   build:
     executor: aws-cli/default
     environment:
-      PACKER_VERSION: '1.5.5'
+      PACKER_VERSION: '1.6.0'
     parameters:
       eks:
         description: "Which EKS version to build"
-        default: "1.14"
+        default: "1.16"
         type: string
     working_directory: ~/repo
     steps:
@@ -26,6 +26,11 @@ jobs:
             unzip packer.zip
             sudo mv packer /usr/local/bin
       - run:
+          name: Get AWS session manager plugin
+          command: |
+            curl "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" -o "session-manager-plugin.deb"
+            sudo dpkg -i session-manager-plugin.deb
+      - run:
           name: Build AMI
           command: make << parameters.eks >>
 
@@ -35,19 +40,13 @@ workflows:
     jobs:
     - build:
         context: global-production
-        eks: "1.14"
-        filters:
-            branches:
-              only: master
-    - build:
-        context: global-production
-        eks: "1.15"
-        filters:
-            branches:
-              only: master
-    - build:
-        context: global-production
         eks: "1.16"
+        filters:
+            branches:
+              only: master
+    - build:
+        context: global-production
+        eks: "1.17"
         filters:
             branches:
               only: master
