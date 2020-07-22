@@ -33,7 +33,7 @@
     "ssm_agent_cw_log": "true",
     "ssm_agent_cw_loggroup": "/ssm/agents",
     "remote_folder": "",
-    "launch_block_device_mappings_volume_size": "12",
+    "launch_block_device_mappings_volume_size": "4",
     "ami_users": "{{env `K8S_AMI_USERS`}}",
     "additional_yum_repos": ""
   },
