@@ -11,11 +11,11 @@
 # express or implied. See the License for the specific language governing
 # permissions and limitations under the License.
 #
-# This file was generated at 2020-07-27T21:19:16-07:00
+# This file was generated at 2020-09-30T15:27:32-07:00
 #
 # Mapping is calculated from AWS EC2 API using the following formula:
 # * First IP on each ENI is not used for pods
-# * 2 additional host-networking pods (AWS ENI and kube-proxy) are accounted for
+# * +2 for the pods that use host-networking (AWS CNI and kube-proxy)
 #
 #   # of ENI * (# of IPv4 per ENI - 1) + 2
 #
@@ -146,7 +146,7 @@ i3en.6xlarge 234
 i3en.large 29
 i3en.metal 737
 i3en.xlarge 58
-inf1.24xlarge 437
+inf1.24xlarge 321
 inf1.2xlarge 38
 inf1.6xlarge 234
 inf1.xlarge 38
@@ -242,6 +242,7 @@ p3.16xlarge 234
 p3.2xlarge 58
 p3.8xlarge 234
 p3dn.24xlarge 737
+p4d.24xlarge 2942
 r3.2xlarge 58
 r3.4xlarge 234
 r3.8xlarge 234
@@ -343,6 +344,13 @@ t3a.micro 4
 t3a.nano 4
 t3a.small 8
 t3a.xlarge 58
+t4g.2xlarge 58
+t4g.large 35
+t4g.medium 17
+t4g.micro 4
+t4g.nano 4
+t4g.small 11
+t4g.xlarge 58
 u-12tb1.metal 147
 u-18tb1.metal 737
 u-24tb1.metal 737
