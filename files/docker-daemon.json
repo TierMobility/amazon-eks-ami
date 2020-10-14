@@ -6,5 +6,6 @@
     "max-file": "10"
   },
   "live-restore": true,
-  "max-concurrent-downloads": 10
+  "max-concurrent-downloads": 10,
+  "registry-mirrors": ["https://docker-registry.eu-central-1.tier-services.io"]
 }
