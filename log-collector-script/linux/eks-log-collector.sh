@@ -28,7 +28,6 @@ readonly LOG_DIR="/var/log"
 readonly COLLECT_DIR="/tmp/eks-log-collector"
 readonly CURRENT_TIME=$(date --utc +%Y-%m-%d_%H%M-%Z)
 readonly DAYS_10=$(date -d "-10 days" '+%Y-%m-%d %H:%M')
-readonly TOKEN=$(curl -X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 600" "http://169.254.169.254/latest/api/token")
 INSTANCE_ID=""
 INIT_TYPE=""
 PACKAGE_TYPE=""
@@ -189,9 +188,20 @@ create_directories() {
   done
 }
 
-get_instance_metadata() {
-  readonly INSTANCE_ID=$(curl --max-time 3 -H "X-aws-ec2-metadata-token: $TOKEN" --silent http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null)
-  echo "${INSTANCE_ID}" > "${COLLECT_DIR}"/system/instance-id.txt
+get_instance_id() {
+  INSTANCE_ID_FILE="/var/lib/cloud/data/instance-id"
+  
+  if grep -q '^i-' "$INSTANCE_ID_FILE"; then
+    cp ${INSTANCE_ID_FILE} "${COLLECT_DIR}"/system/instance-id.txt
+    readonly INSTANCE_ID=$(cat "${COLLECT_DIR}"/system/instance-id.txt)
+  else
+    readonly INSTANCE_ID=$(curl --max-time 10 --retry 5 http://169.254.169.254/latest/meta-data/instance-id)
+    if [ 0 -eq $? ]; then # Check if previous command was successful.
+      echo "${INSTANCE_ID}" > "${COLLECT_DIR}"/system/instance-id.txt
+    else
+      warning "Unable to find EC2 Instance Id. Skipped Instance Id."
+    fi
+  fi
 }
 
 is_diskfull() {
@@ -231,7 +241,7 @@ init() {
 collect() {
   init
   is_diskfull
-  get_instance_metadata
+  get_instance_id
   get_common_logs
   get_kernel_info
   get_mounts_info
@@ -289,10 +299,10 @@ get_selinux_info() {
 get_iptables_info() {
   try "collect iptables information"
 
-  iptables --wait 1 --numeric --verbose --list --table mangle > "${COLLECT_DIR}"/networking/iptables-mangle.txt
-  iptables --wait 1 --numeric --verbose --list --table filter > "${COLLECT_DIR}"/networking/iptables-filter.txt
-  iptables --wait 1 --numeric --verbose --list --table nat > "${COLLECT_DIR}"/networking/iptables-nat.txt
-  iptables --wait 1 --numeric --verbose --list > "${COLLECT_DIR}"/networking/iptables.txt
+  iptables --wait 1 --numeric --verbose --list --table mangle | tee "${COLLECT_DIR}"/networking/iptables-mangle.txt | sed '/^num\|^$\|^Chain\|^\ pkts.*.destination/d' | echo -e "=======\nTotal Number of Rules: $(wc -l)" >> "${COLLECT_DIR}"/networking/iptables-mangle.txt
+  iptables --wait 1 --numeric --verbose --list --table filter | tee "${COLLECT_DIR}"/networking/iptables-filter.txt | sed '/^num\|^$\|^Chain\|^\ pkts.*.destination/d' | echo -e "=======\nTotal Number of Rules: $(wc -l)" >> "${COLLECT_DIR}"/networking/iptables-filter.txt
+  iptables --wait 1 --numeric --verbose --list --table nat | tee "${COLLECT_DIR}"/networking/iptables-nat.txt | sed '/^num\|^$\|^Chain\|^\ pkts.*.destination/d' | echo -e "=======\nTotal Number of Rules: $(wc -l)" >> "${COLLECT_DIR}"/networking/iptables-nat.txt
+  iptables --wait 1 --numeric --verbose --list | tee "${COLLECT_DIR}"/networking/iptables.txt | sed '/^num\|^$\|^Chain\|^\ pkts.*.destination/d' | echo -e "=======\nTotal Number of Rules: $(wc -l)" >> "${COLLECT_DIR}"/networking/iptables.txt
   iptables-save > "${COLLECT_DIR}"/networking/iptables-save.txt
 
   ok

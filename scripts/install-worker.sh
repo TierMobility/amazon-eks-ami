@@ -24,6 +24,7 @@ validate_env_set() {
 validate_env_set BINARY_BUCKET_NAME
 validate_env_set BINARY_BUCKET_REGION
 validate_env_set DOCKER_VERSION
+validate_env_set CONTAINERD_VERSION
 validate_env_set CNI_PLUGIN_VERSION
 validate_env_set KUBERNETES_VERSION
 validate_env_set KUBERNETES_BUILD_DATE
@@ -86,7 +87,7 @@ EOF
 
 # If current clocksource is xen, switch to tsc
 if grep --quiet xen /sys/devices/system/clocksource/clocksource0/current_clocksource &&
-  grep --quiet tsc /sys/devices/system/clocksource/clocksource0/available_clocksource; then
+    grep --quiet tsc /sys/devices/system/clocksource/clocksource0/available_clocksource; then
     echo "tsc" | sudo tee /sys/devices/system/clocksource/clocksource0/current_clocksource
 else
     echo "tsc as a clock source is not applicable, skipping."
@@ -113,7 +114,8 @@ sudo yum install -y yum-utils device-mapper-persistent-data lvm2
 INSTALL_DOCKER="${INSTALL_DOCKER:-true}"
 if [[ "$INSTALL_DOCKER" == "true" ]]; then
     sudo amazon-linux-extras enable docker
-    sudo groupadd -fog 1950 docker && sudo useradd --gid 1950 docker
+    sudo groupadd -fog 1950 docker
+    sudo useradd --gid $(getent group docker | cut -d: -f3) docker
     sudo yum install -y docker-${DOCKER_VERSION}*
     sudo usermod -aG docker $USER
 
@@ -124,6 +126,8 @@ if [[ "$INSTALL_DOCKER" == "true" ]]; then
     sudo mv $TEMPLATE_DIR/docker-daemon.json /etc/docker/daemon.json
     sudo chown root:root /etc/docker/daemon.json
 
+    sudo yum downgrade -y containerd-${CONTAINERD_VERSION}
+
     # Enable docker daemon to start on boot.
     sudo systemctl daemon-reload
     sudo systemctl enable docker
@@ -132,7 +136,7 @@ if [[ "$INSTALL_DOCKER" == "true" ]]; then
     # this is a race condition between a (log) bursting container and the
     # interval fluentd lists new files in /var/log/containers (default: 60s)
     # we merge in the value to be transparent on any new settings AWS is placing in /etc/docker/daemon.json
-    tmp=$(mktemp) && sudo jq '."log-opts"."max-size" = "250m" | ."log-opts"."max-file" = "3"' /etc/docker/daemon.json > ${tmp} && sudo mv -f ${tmp} /etc/docker/daemon.json
+    tmp=$(mktemp) && sudo jq '."log-opts"."max-size" = "250m" | ."log-opts"."max-file" = "3"' /etc/docker/daemon.json >${tmp} && sudo mv -f ${tmp} /etc/docker/daemon.json
 fi
 
 ################################################################################
@@ -172,7 +176,7 @@ BINARIES=(
     kubelet
     aws-iam-authenticator
 )
-for binary in ${BINARIES[*]} ; do
+for binary in ${BINARIES[*]}; do
     if [[ -n "$AWS_ACCESS_KEY_ID" ]]; then
         echo "AWS cli present - using it to copy binaries from s3."
         aws s3 cp --region $BINARY_BUCKET_REGION $S3_PATH/$binary .
@@ -201,12 +205,12 @@ else
         echo "AWS cli present - using it to copy binaries from s3."
         aws s3 cp --region $BINARY_BUCKET_REGION $S3_PATH/${CNI_PLUGIN_FILENAME}.tgz .
         aws s3 cp --region $BINARY_BUCKET_REGION $S3_PATH/${CNI_PLUGIN_FILENAME}.tgz.sha256 .
-        sudo sha256sum -c "${CNI_PLUGIN_FILENAME}.tgz.sha256"
     else
         echo "AWS cli missing - using wget to fetch cni binaries from s3. Note: This won't work for private bucket."
         sudo wget "$S3_URL_BASE/${CNI_PLUGIN_FILENAME}.tgz"
         sudo wget "$S3_URL_BASE/${CNI_PLUGIN_FILENAME}.tgz.sha256"
     fi
+    sudo sha256sum -c "${CNI_PLUGIN_FILENAME}.tgz.sha256"
 fi
 sudo tar -xvf "${CNI_PLUGIN_FILENAME}.tgz" -C /opt/cni/bin
 rm "${CNI_PLUGIN_FILENAME}.tgz"
@@ -222,7 +226,6 @@ sudo chown root:root /etc/systemd/system/kubelet.service
 sudo mv $TEMPLATE_DIR/kubelet-config.json /etc/kubernetes/kubelet/kubelet-config.json
 sudo chown root:root /etc/kubernetes/kubelet/kubelet-config.json
 
-
 sudo systemctl daemon-reload
 # Disable the kubelet until the proper dropins have been configured
 sudo systemctl disable kubelet
@@ -236,12 +239,17 @@ sudo mv $TEMPLATE_DIR/eni-max-pods.txt /etc/eks/eni-max-pods.txt
 sudo mv $TEMPLATE_DIR/bootstrap.sh /etc/eks/bootstrap.sh
 sudo chmod +x /etc/eks/bootstrap.sh
 
+if [[ -n "$SONOBUOY_E2E_REGISTRY" ]]; then
+    sudo mv $TEMPLATE_DIR/sonobuoy-e2e-registry-config /etc/eks/sonobuoy-e2e-registry-config
+    sudo sed -i s,SONOBUOY_E2E_REGISTRY,$SONOBUOY_E2E_REGISTRY,g /etc/eks/sonobuoy-e2e-registry-config
+fi
+
 ################################################################################
 ### AMI Metadata ###############################################################
 ################################################################################
 
-BASE_AMI_ID=$(curl -s  http://169.254.169.254/latest/meta-data/ami-id)
-cat <<EOF > /tmp/release
+BASE_AMI_ID=$(curl -s http://169.254.169.254/latest/meta-data/ami-id)
+cat <<EOF >/tmp/release
 BASE_AMI_ID="$BASE_AMI_ID"
 BUILD_TIME="$(date)"
 BUILD_KERNEL="$(uname -r)"
@@ -322,35 +330,44 @@ EOF
 
 cat /etc/sysctl.conf /etc/sysctl.d/*.conf | sudo sysctl -e -p -
 
+### Setting up sysctl properties ###############################################
+################################################################################
+
+echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf
+echo fs.inotify.max_user_instances=8192 | sudo tee -a /etc/sysctl.conf
+echo vm.max_map_count=524288 | sudo tee -a /etc/sysctl.conf
 
 ################################################################################
 ### Cleanup ####################################################################
 ################################################################################
 
-# Clean up yum caches to reduce the image size
-sudo yum clean all
-sudo rm -rf \
-    $TEMPLATE_DIR  \
-    /var/cache/yum
+CLEANUP_IMAGE="${CLEANUP_IMAGE:-true}"
+if [[ "$CLEANUP_IMAGE" == "true" ]]; then
+    # Clean up yum caches to reduce the image size
+    sudo yum clean all
+    sudo rm -rf \
+        $TEMPLATE_DIR \
+        /var/cache/yum
 
-# Clean up files to reduce confusion during debug
-sudo rm -rf \
-    /etc/hostname \
-    /etc/machine-id \
-    /etc/resolv.conf \
-    /etc/ssh/ssh_host* \
-    /home/ec2-user/.ssh/authorized_keys \
-    /root/.ssh/authorized_keys \
-    /var/lib/cloud/data \
-    /var/lib/cloud/instance \
-    /var/lib/cloud/instances \
-    /var/lib/cloud/sem \
-    /var/lib/dhclient/* \
-    /var/lib/dhcp/dhclient.* \
-    /var/lib/yum/history \
-    /var/log/cloud-init-output.log \
-    /var/log/cloud-init.log \
-    /var/log/secure \
-    /var/log/wtmp
+    # Clean up files to reduce confusion during debug
+    sudo rm -rf \
+        /etc/hostname \
+        /etc/machine-id \
+        /etc/resolv.conf \
+        /etc/ssh/ssh_host* \
+        /home/ec2-user/.ssh/authorized_keys \
+        /root/.ssh/authorized_keys \
+        /var/lib/cloud/data \
+        /var/lib/cloud/instance \
+        /var/lib/cloud/instances \
+        /var/lib/cloud/sem \
+        /var/lib/dhclient/* \
+        /var/lib/dhcp/dhclient.* \
+        /var/lib/yum/history \
+        /var/log/cloud-init-output.log \
+        /var/log/cloud-init.log \
+        /var/log/secure \
+        /var/log/wtmp
+fi
 
 sudo touch /etc/machine-id
