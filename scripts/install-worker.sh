@@ -327,6 +327,14 @@ EOF
 
 cat /etc/sysctl.conf /etc/sysctl.d/*.conf | sudo sysctl -e -p -
 
+################################################################################
+### Persist conntrack params ###################################################
+################################################################################
+cat <<EOF | sudo tee /etc/udev/rules.d/24-nf_conntrack_max.rules
+ACTION=="add", SUBSYSTEM=="module", KERNEL=="nf_conntrack", \
+  RUN+="/usr/lib/systemd/systemd-sysctl --prefix=/net/netfilter/nf_conntrack_max"
+EOF
+
 ### Setting up sysctl properties ###############################################
 ################################################################################
 
