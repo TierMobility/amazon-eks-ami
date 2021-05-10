@@ -302,6 +302,17 @@ EOT
 fi
 
 ################################################################################
+### SystemReserved #############################################################
+################################################################################
+# Add systemReserved capacities to kubelet's configuration
+#  - https://kubernetes.io/docs/tasks/administer-cluster/reserve-compute-resources/
+#  - https://github.com/kubernetes/kubernetes/blob/master/staging/src/k8s.io/kubelet/config/v1beta1/types.go
+# (taken from files/bootstrap.sh)
+KUBELET_CONFIG="/etc/kubernetes/kubelet/kubelet-config.json"
+sudo echo "$(jq --arg mebibytes_to_reserve "500Mi" --arg cpu_millicores_to_reserve "500m" \
+    '. += {systemReserved: {"cpu": $cpu_millicores_to_reserve, "memory": $mebibytes_to_reserve}}' $KUBELET_CONFIG)" > $KUBELET_CONFIG
+
+################################################################################
 ### Kernel Params ##############################################################
 ################################################################################
 cat <<EOF | sudo tee /etc/sysctl.d/99-tweaks.conf
