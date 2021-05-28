@@ -336,10 +336,6 @@ net.core.somaxconn = 32768
 net.core.wmem_default = 262144
 net.core.wmem_max = 16777216
 
-net.netfilter.nf_conntrack_max = 1000000
-net.netfilter.nf_conntrack_tcp_timeout_time_wait = 30
-net.nf_conntrack_max = 1000000
-
 net.ipv4.tcp_max_syn_backlog = 16384
 net.ipv4.tcp_fin_timeout = 15
 net.ipv4.tcp_max_tw_buckets = 1048576
