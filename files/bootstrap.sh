@@ -375,18 +375,14 @@ echo "$(jq --arg mebibytes_to_reserve "${mebibytes_to_reserve}Mi" --arg cpu_mill
     '. += {kubeReserved: {"cpu": $cpu_millicores_to_reserve, "ephemeral-storage": "1Gi", "memory": $mebibytes_to_reserve}}' $KUBELET_CONFIG)" > $KUBELET_CONFIG
 
 if [[ "$USE_MAX_PODS" = "true" ]]; then
-    if [[ -n "$MAX_PODS" ]]; then
-        echo "$(jq ".maxPods=$MAX_PODS" $KUBELET_CONFIG)" > $KUBELET_CONFIG
-    else
-        echo "No entry for $INSTANCE_TYPE in $MAX_PODS_FILE. Not setting max pods for kubelet"
-    fi
+    echo "$(jq ".maxPods=$MAX_PODS" $KUBELET_CONFIG)" > $KUBELET_CONFIG
 fi
 
 mkdir -p /etc/systemd/system/kubelet.service.d
 
 cat <<EOF > /etc/systemd/system/kubelet.service.d/10-kubelet-args.conf
 [Service]
-Environment='KUBELET_ARGS=--node-ip=$INTERNAL_IP --pod-infra-container-image=$PAUSE_CONTAINER'
+Environment='KUBELET_ARGS=--node-ip=$INTERNAL_IP --pod-infra-container-image=$PAUSE_CONTAINER --v=2'
 EOF
 
 if [[ -n "$KUBELET_EXTRA_ARGS" ]]; then
@@ -398,11 +394,15 @@ fi
 
 # Replace with custom docker config contents.
 if [[ -n "$DOCKER_CONFIG_JSON" ]]; then
+    mkdir -p /etc/docker
+
     echo "$DOCKER_CONFIG_JSON" > /etc/docker/daemon.json
     systemctl restart docker
 fi
 
 if [[ "$ENABLE_DOCKER_BRIDGE" = "true" ]]; then
+    mkdir -p /etc/docker
+
     # Enabling the docker bridge network. We have to disable live-restore as it
     # prevents docker from recreating the default bridge network on restart
     echo "$(jq '.bridge="docker0" | ."live-restore"=false' /etc/docker/daemon.json)" > /etc/docker/daemon.json

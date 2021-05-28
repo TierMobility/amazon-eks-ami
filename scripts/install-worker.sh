@@ -25,6 +25,7 @@ validate_env_set BINARY_BUCKET_NAME
 validate_env_set BINARY_BUCKET_REGION
 validate_env_set DOCKER_VERSION
 validate_env_set CONTAINERD_VERSION
+validate_env_set RUNC_VERSION
 validate_env_set CNI_PLUGIN_VERSION
 validate_env_set KUBERNETES_VERSION
 validate_env_set KUBERNETES_BUILD_DATE
@@ -113,7 +114,21 @@ if [[ "$INSTALL_DOCKER" == "true" ]]; then
     sudo amazon-linux-extras enable docker
     sudo groupadd -fog 1950 docker
     sudo useradd --gid $(getent group docker | cut -d: -f3) docker
+
+    # install version lock to put a lock on dependecies
+    sudo yum install -y yum-plugin-versionlock
+
+    # install runc and lock version
+    sudo yum install -y runc-${RUNC_VERSION}
+    sudo yum versionlock runc-*
+
+    # install containerd and lock version
+    sudo yum install -y containerd-${CONTAINERD_VERSION}
+    sudo yum versionlock containerd-*
+
+    # install docker and lock version
     sudo yum install -y docker-${DOCKER_VERSION}*
+    sudo yum versionlock docker-*
     sudo usermod -aG docker $USER
 
     # Remove all options from sysconfig docker.
@@ -122,8 +137,6 @@ if [[ "$INSTALL_DOCKER" == "true" ]]; then
     sudo mkdir -p /etc/docker
     sudo mv $TEMPLATE_DIR/docker-daemon.json /etc/docker/daemon.json
     sudo chown root:root /etc/docker/daemon.json
-
-    sudo yum downgrade -y containerd-${CONTAINERD_VERSION}
 
     # Enable docker daemon to start on boot.
     sudo systemctl daemon-reload
@@ -220,6 +233,12 @@ sudo mv $TEMPLATE_DIR/kubelet-kubeconfig /var/lib/kubelet/kubeconfig
 sudo chown root:root /var/lib/kubelet/kubeconfig
 sudo mv $TEMPLATE_DIR/kubelet.service /etc/systemd/system/kubelet.service
 sudo chown root:root /etc/systemd/system/kubelet.service
+# Inject CSIServiceAccountToken feature gate to kubelet config if kubernetes version starts with 1.20.
+# This is only injected for 1.20 since CSIServiceAccountToken will be moved to beta starting 1.21.
+if [[ $KUBERNETES_VERSION == "1.20"* ]]; then
+    KUBELET_CONFIG_WITH_CSI_SERVICE_ACCOUNT_TOKEN_ENABLED=$(cat $TEMPLATE_DIR/kubelet-config.json | jq '.featureGates += {CSIServiceAccountToken: true}')
+    echo $KUBELET_CONFIG_WITH_CSI_SERVICE_ACCOUNT_TOKEN_ENABLED > $TEMPLATE_DIR/kubelet-config.json
+fi
 sudo mv $TEMPLATE_DIR/kubelet-config.json /etc/kubernetes/kubelet/kubelet-config.json
 sudo chown root:root /etc/kubernetes/kubelet/kubelet-config.json
 
@@ -236,6 +255,7 @@ sudo mv $TEMPLATE_DIR/eni-max-pods.txt /etc/eks/eni-max-pods.txt
 sudo mv $TEMPLATE_DIR/bootstrap.sh /etc/eks/bootstrap.sh
 sudo chmod +x /etc/eks/bootstrap.sh
 
+SONOBUOY_E2E_REGISTRY="${SONOBUOY_E2E_REGISTRY:-}"
 if [[ -n "$SONOBUOY_E2E_REGISTRY" ]]; then
     sudo mv $TEMPLATE_DIR/sonobuoy-e2e-registry-config /etc/eks/sonobuoy-e2e-registry-config
     sudo sed -i s,SONOBUOY_E2E_REGISTRY,$SONOBUOY_E2E_REGISTRY,g /etc/eks/sonobuoy-e2e-registry-config
